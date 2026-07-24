@@ -11,19 +11,24 @@ jobs:
 
       - uses: actions/checkout@v3
 
+      # ---------- 修复点：使用健壮的方式读取 config.env ----------
       - name: Setup Configuration
         run: |
-          echo "KERNEL_SOURCE=$(cat config.env | grep "KERNEL_SOURCE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_SOURCE_BRANCH=$(cat config.env | grep "KERNEL_SOURCE_BRANCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_DEFCONFIG=$(cat config.env | grep "KERNEL_DEFCONFIG" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "TARGET_ARCH=$(cat config.env | grep "TARGET_ARCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "KERNEL_FILE=$(cat config.env | grep "KERNEL_FILE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "CLANG_VERSION=$(cat config.env | grep "CLANG_VERSION" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "BUILD_EXTRA_COMMAND=$(cat config.env | grep "EXTRA_BUILD_COMMAND" | head -n 1 | cut -d ":" -f 2)" >> $GITHUB_ENV
-          echo "USE_KERNELSU=$(cat config.env | grep "USE_KERNELSU" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "MAKE_BOOT_IMAGE=$(cat config.env | grep "MAKE_BOOT_IMAGE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "BOOT_SIGNATURE=$(cat config.env | grep "BOOT_SIGNATURE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-          echo "SOURCE_BOOT_IMAGE=$(cat config.env | grep "SOURCE_BOOT_IMAGE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
+          while IFS='=' read -r key value; do
+            # 跳过注释行和空行
+            [[ -z "$key" || "$key" =~ ^# ]] && continue
+            # 去除 key 两端的空白字符
+            key=$(echo "$key" | xargs)
+            # 将变量写入 GITHUB_ENV
+            echo "${key}=${value}" >> $GITHUB_ENV
+          done < config.env
+
+      # （可选）调试：打印关键变量，确认读取正确
+      - name: Debug environment variables
+        run: |
+          echo "KERNEL_SOURCE=${{ env.KERNEL_SOURCE }}"
+          echo "KERNEL_SOURCE_BRANCH=${{ env.KERNEL_SOURCE_BRANCH }}"
+          echo "EXTRA_BUILD_COMMAND=${{ env.EXTRA_BUILD_COMMAND }}"
 
       - name: Setup build kernel environment
         run: |
@@ -76,7 +81,6 @@ jobs:
             echo "Source boot image is empty"
           fi
 
-      # ---------- 关键修改：使用 SukiSU Ultra 官方主分支 KernelSU ----------
       - name: Setup SukiSU Ultra (main branch)
         if: env.USE_KERNELSU == 'true'
         run: |
@@ -91,8 +95,8 @@ jobs:
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
           export KBUILD_BUILD_HOST=Github-Action
           export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
-          make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.BUILD_EXTRA_COMMAND }} ${{ env.KERNEL_DEFCONFIG }}
-          make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.BUILD_EXTRA_COMMAND }}
+          make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.EXTRA_BUILD_COMMAND }} ${{ env.KERNEL_DEFCONFIG }}
+          make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.EXTRA_BUILD_COMMAND }}
 
       - name: Make boot image
         if: env.HAVE_SOURCE_BOOT_IMAGE == 'true'
