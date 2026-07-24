@@ -81,15 +81,17 @@ jobs:
             echo "Source boot image is empty"
           fi
 
-      - name: Setup SukiSU Ultra (main branch)
-        if: env.USE_KERNELSU == 'true'
-        run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main --no-kpm
-          echo "UPLOADNAME=-SukiSU" >> $GITHUB_ENV
-          [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'main')"
-
+      - name: Setup SukiSU Ultra (main branch) - KPM disabled
+  if: env.USE_KERNELSU == 'true'
+  run: |
+    cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+    export KSU_KPM=false
+    curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+    echo "UPLOADNAME=-SukiSU" >> $GITHUB_ENV
+    [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'main')"
       - name: Build kernel
+
+      
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
