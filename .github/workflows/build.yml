@@ -11,19 +11,14 @@ jobs:
 
       - uses: actions/checkout@v3
 
-      # ---------- 修复点：使用健壮的方式读取 config.env ----------
       - name: Setup Configuration
         run: |
           while IFS='=' read -r key value; do
-            # 跳过注释行和空行
             [[ -z "$key" || "$key" =~ ^# ]] && continue
-            # 去除 key 两端的空白字符
             key=$(echo "$key" | xargs)
-            # 将变量写入 GITHUB_ENV
             echo "${key}=${value}" >> $GITHUB_ENV
           done < config.env
 
-      # （可选）调试：打印关键变量，确认读取正确
       - name: Debug environment variables
         run: |
           echo "KERNEL_SOURCE=${{ env.KERNEL_SOURCE }}"
@@ -81,17 +76,17 @@ jobs:
             echo "Source boot image is empty"
           fi
 
+      # ---------- 关键修改：强制禁用 KPM ----------
       - name: Setup SukiSU Ultra (main branch) - KPM disabled
-  if: env.USE_KERNELSU == 'true'
-  run: |
-    cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-    export KSU_KPM=false
-    curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-    echo "UPLOADNAME=-SukiSU" >> $GITHUB_ENV
-    [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'main')"
-      - name: Build kernel
+        if: env.USE_KERNELSU == 'true'
+        run: |
+          cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+          export KSU_KPM=false
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "UPLOADNAME=-SukiSU" >> $GITHUB_ENV
+          [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'main')"
 
-      
+      - name: Build kernel
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
           export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
