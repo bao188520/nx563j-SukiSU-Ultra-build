@@ -75,15 +75,16 @@ jobs:
           echo "Source boot image is empty"
         fi
 
-    # ========== 关键修改：替换为 SukiSU Ultra ==========
-    - name: Setup SukiSU Ultra (Non-GKI support)
+    # ========== 方案一：禁用 susfs ==========
+    - name: Setup SukiSU Ultra (Non-GKI support, susfs disabled)
       if: env.USE_KERNELSU == 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
+        export SUSFS_ENABLE=false
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
         echo "UPLOADNAME=-SukiSU-Ultra" >> $GITHUB_ENV
         [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'unknown')"
-    # ==================================================
+    # ==========================================
 
     - name: Build kernel
       run: |
