@@ -1,12 +1,13 @@
-name: Build NX563J Kernel With SukiSU Ultra
+name: Build Kernel
 on:
-  workflow_dispatch: # 手动触发编译
+  workflow_dispatch:
 
 jobs:
   build:
     name: Build Kernel by ${{ github.actor }}
     runs-on: ubuntu-latest
     steps:
+
     - uses: actions/checkout@v3
 
     - name: Setup Configuration
@@ -22,7 +23,6 @@ jobs:
         echo "MAKE_BOOT_IMAGE=$(cat config.env | grep "MAKE_BOOT_IMAGE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
         echo "BOOT_SIGNATURE=$(cat config.env | grep "BOOT_SIGNATURE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
         echo "SOURCE_BOOT_IMAGE=$(cat config.env | grep "SOURCE_BOOT_IMAGE" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
-        echo "SUKISU_BRANCH=$(cat config.env | grep "SUKISU_BRANCH" | head -n 1 | cut -d "=" -f 2)" >> $GITHUB_ENV
 
     - name: Setup build kernel environment
       run: |
@@ -52,7 +52,7 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace
         git clone https://android.googlesource.com/platform/system/tools/mkbootimg tools -b main-kernel-build-2023 --depth=1
 
-    - name: Download boot signer tools(Nubia NX563J专用)
+    - name: Download boot signer tools
       if: env.BOOT_SIGNATURE == 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
@@ -69,33 +69,29 @@ jobs:
         cd $GITHUB_WORKSPACE/kernel_workspace
         wget -O boot-source.img ${{ env.SOURCE_BOOT_IMAGE }}
         if [ -f boot-source.img ]; then
-            echo "FORMAT_MKBOOTING=$(python3 tools/unpack_bootimg.py --boot_img=boot-source.img --format mkbootimg)" >> $GITHUB_ENV
-            echo "HAVE_SOURCE_BOOT_IMAGE=true" >> $GITHUB_ENV
+          echo "FORMAT_MKBOOTING=$(python3 tools/unpack_bootimg.py --boot_img=boot-source.img --format mkbootimg)" >> $GITHUB_ENV
+          echo "HAVE_SOURCE_BOOT_IMAGE=true" >> $GITHUB_ENV
         else
-            echo "Source boot image download failed"
+          echo "Source boot image is empty"
         fi
 
-    # ========== 核心修改：替换SukiSU Ultra非GKI源码拉取 ==========
-    - name: Setup SukiSU Ultra legacy 0.9.5 (非GKI专用)
+    # ========== 关键修改：替换为 SukiSU Ultra ==========
+    - name: Setup SukiSU Ultra (Non-GKI support)
       if: env.USE_KERNELSU == 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
-        # 拉取SukiSU-Ultra 非GKI legacy分支，替代原版tiann KernelSU
-        git clone https://github.com/SukiSU-Ultra/KernelSU KernelSU -b ${{ env.SUKISU_BRANCH }} --depth=1
-        # 执行内核注入脚本（和原生ksu逻辑完全兼容，legacy分支适配传统内核）
-        bash KernelSU/kernel/setup.sh
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
         echo "UPLOADNAME=-SukiSU-Ultra" >> $GITHUB_ENV
-        [ -d KernelSU ] && echo "Loaded SukiSU Ultra tag: $(cd KernelSU && git describe --tags)"
+        [ -d KernelSU ] && echo "Loaded SukiSU Ultra: $(cd KernelSU && git describe --tags 2>/dev/null || echo 'unknown')"
+    # ==================================================
 
-    - name: Build kernel with SukiSU Ultra
+    - name: Build kernel
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace/android-kernel
         export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang-aosp/bin:$PATH
         export KBUILD_BUILD_HOST=Github-Action
         export KBUILD_BUILD_USER=$(echo ${{ github.actor }} | tr A-Z a-z)
-        # 生成defconfig
         make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.BUILD_EXTRA_COMMAND }} ${{ env.KERNEL_DEFCONFIG }}
-        # 完整编译内核
         make -j$(nproc --all) O=out ARCH=${{ env.TARGET_ARCH }} CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$GITHUB_WORKSPACE/kernel_workspace/gcc-aosp/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CROSS_COMPILE_COMPAT=$GITHUB_WORKSPACE/kernel_workspace/gcc32-aosp/bin/arm-linux-androideabi- CC=clang ${{ env.BUILD_EXTRA_COMMAND }}
 
     - name: Make boot image
@@ -106,42 +102,39 @@ jobs:
         cp android-kernel/out/arch/${{ env.TARGET_ARCH }}/boot/${{ env.KERNEL_FILE }} out/kernel
         python3 tools/mkbootimg.py ${{ env.FORMAT_MKBOOTING }} -o boot_unsign.img
         if [ -f boot_unsign.img ]; then
-            echo "MAKE_BOOT_IMAGE_IS_OK=true" >> $GITHUB_ENV
+          echo "MAKE_BOOT_IMAGE_IS_OK=true" >> $GITHUB_ENV
         else
-            echo "Boot image build failed"
+          echo "Boot image is empty"
         fi
-        # 生成selinux permissive调试boot
         python3 tools/mkbootimg.py --header_version 0 --os_version 14.0.0 --os_patch_level 2023-11 --kernel out/kernel --ramdisk out/ramdisk --pagesize 0x00001000 --base 0x00000000 --kernel_offset 0x00008000 --ramdisk_offset 0x01000000 --second_offset 0x00000000 --tags_offset 0x00000100 --board '' --cmdline 'androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x37 ehci-hcd.park=3 lpm_levels.sleep_disabled=1 sched_enable_hmp=1 sched_enable_power_aware=1 service_locator.enable=1 swiotlb=2048 androidboot.usbconfigfs=true androidboot.usbcontroller=a800000.dwc3 androidboot.selinux=permissive loop.max_part=7' -o bootp_unsign.img
         if [ -f bootp_unsign.img ]; then
-            echo "MAKE_BOOTP_IMAGE_IS_OK=true" >> $GITHUB_ENV
+          echo "MAKE_BOOTP_IMAGE_IS_OK=true" >> $GITHUB_ENV
         else
-            echo "Permissive boot build failed"
+          echo "Bootp image is empty"
         fi
 
-    - name: Boot Signature (Nubia专用签名)
+    - name: Boot Signature
       if: env.BOOT_SIGNATURE == 'true'
       run: |
         cd $GITHUB_WORKSPACE/kernel_workspace
         java -jar bootsigner/boot_signer.jar /boot boot_unsign.img bootsigner/verity.pk8 bootsigner/verity.x509.pem boot.img
         RET=$(java -jar bootsigner/boot_signer.jar -verify boot.img 2>&1)
-        if echo "$RET" | grep "VALID" >/dev/null 2>&1;
-        then
-            echo "Boot Signature VALID";
-            echo "BOOT_SIGNATURE_VALID=true" >> $GITHUB_ENV
+        if echo "$RET" | grep "VALID" >/dev/null 2>&1; then
+          echo "Boot Signature is VALID"
+          echo "BOOT_SIGNATURE_VALID=true" >> $GITHUB_ENV
         else
-            echo "Boot Signature INVALID";
+          echo "Boot Signature is not VALID"
         fi
         java -jar bootsigner/boot_signer.jar /boot bootp_unsign.img bootsigner/verity.pk8 bootsigner/verity.x509.pem boot_permissive.img
         RET=$(java -jar bootsigner/boot_signer.jar -verify boot_permissive.img 2>&1)
-        if echo "$RET" | grep "VALID" >/dev/null 2>&1;
-        then
-            echo "Permissive Boot Signature VALID";
-            echo "BOOTP_SIGNATURE_VALID=true" >> $GITHUB_ENV
+        if echo "$RET" | grep "VALID" >/dev/null 2>&1; then
+          echo "Boot Permissive Signature is VALID"
+          echo "BOOTP_SIGNATURE_VALID=true" >> $GITHUB_ENV
         else
-            echo "Permissive Boot Signature INVALID";
+          echo "Boot Permissive Signature is not VALID"
         fi
 
-    - name: Upload compiled boot image
+    - name: Upload boot image with permissive
       if: env.MAKE_BOOT_IMAGE_IS_OK == 'true' && env.BOOT_SIGNATURE_VALID == 'true' && env.MAKE_BOOTP_IMAGE_IS_OK == 'true' && env.BOOTP_SIGNATURE_VALID == 'true'
       uses: actions/upload-artifact@v4
       with:
